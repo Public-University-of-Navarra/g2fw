@@ -1,57 +1,119 @@
-// MOCK of the barometer: it does not talk to the hardware.
-// It simulates a slow climb to about 2 m and back (period 20 s), so the
-// altitude changes, and it fails on purpose every 100th sample (FW_ERR_TIMEOUT)
-// so the error path can be tested.
+// REAL driver of the barometer: LPS28DFW on I2C_SENS (Wire), address 0x5C, with the SparkFun
+// library (declared in fw/platformio.ini). Contract: fw/README.md, section "bar".
+//
+// Adapted from test 03 of the validation firmware (19/11/2026): same configuration (1260 hPa full
+// scale, average of 16, low-pass filter ODR/4) but at 25 Hz, the rate of the contract.
+// The sensor is polled through its status register (like test 03), so the INT_ALT line is not
+// needed to read it.
+//
+// Known limitation, to check on the real board: the altitude zero is the first valid sample read
+// in bar_begin() (contract). In Instrumentacion Avanzada the internal filter needed ~3 s to
+// settle, so the first seconds may show an offset of some centimetres.
 #include "bar.h"
 
 #include <Arduino.h>
+#include <SparkFun_LPS28DFW_Arduino_Library.h>
+#include <Wire.h>
+#include <board_pins.h>
 #include <math.h>
 
-static const uint32_t kPeriodMs = 40;     // 25 Hz, the rate of the real sensor (contract)
-static const uint32_t kErrorEvery = 100;  // one simulated error every 100 samples (4 s)
-static const float kStartHpa = 1013.25f;  // pressure "measured" in bar_begin()
-static const float kHpaPerMetre = 0.12f;  // near the ground, 1 m up = 0.12 hPa less
-static const float kMinHpa = 260.0f;      // LPS28DFW range, used to validate the data
-static const float kMaxHpa = 1260.0f;
+namespace {
 
-static bool g_started = false;
-static bool g_ready = false;
-static bar_data_t g_last;
-static float g_p0 = 0.0f;  // reference pressure, altitude 0
-static uint32_t g_last_ms = 0;
-static uint32_t g_count = 0;
+constexpr float kMinHpa = 260.0f;  // LPS28DFW range in this full scale (validate input)
+constexpr float kMaxHpa = 1260.0f;
+constexpr uint32_t kPollMs = 10;          // read the status at most every 10 ms (data: 25 Hz)
+constexpr uint32_t kDataTimeoutMs = 500;  // no new sample in 0.5 s -> FW_ERR_TIMEOUT
+constexpr uint32_t kFirstSampleTimeoutMs = 500;  // bar_begin(): max wait for the altitude zero
 
-// Altitude above the reference pressure p0 (international barometric formula),
-// m.
-static float altitudeFromPressure(float hpa, float p0) {
+LPS28DFW sensor;
+
+int g_begin_err = FW_ERR_NOT_READY;  // result of bar_begin(); bar_update() repeats it if it failed
+bool g_ready = false;
+float g_p0 = NAN;  // reference pressure, altitude 0
+bar_data_t g_last = {0.0f, 0.0f};
+uint32_t g_last_poll_ms = 0;
+uint32_t g_last_data_ms = 0;
+
+// Altitude above the reference pressure p0 (international barometric formula), m.
+float altitudeFromPressure(float hpa, float p0) {
   return 44330.0f * (1.0f - powf(hpa / p0, 0.1903f));
 }
 
-int bar_begin() {
-  g_p0 = kStartHpa;
-  g_last_ms = millis();
-  g_started = true;
+// Quick presence check: the library has no timeout of its own.
+bool sensorAcks() {
+  Wire.beginTransmission(ADDR_LPS28DFW);
+  return Wire.endTransmission() == 0;
+}
+
+// Reads one sample if the sensor has a new one. *got = false if there is none yet.
+int readSample(float *hpa, bool *got) {
+  *got = false;
+  lps28dfw_stat_t status;
+  if (sensor.getStatus(&status) != LPS28DFW_OK) return FW_ERR_NOT_FOUND;  // no answer on I2C
+  if (!status.drdy_pres) return FW_OK;                                    // no new sample yet
+  if (sensor.getSensorData() != LPS28DFW_OK) return FW_ERR_BAD_DATA;
+  float p = sensor.data.pressure.hpa;
+  if (!(p >= kMinHpa && p <= kMaxHpa)) return FW_ERR_BAD_DATA;  // out of range (also NaN)
+  *hpa = p;
+  *got = true;
   return FW_OK;
 }
 
+int beginImpl() {
+  if (!sensorAcks()) return FW_ERR_NOT_FOUND;  // e.g. Wokwi: there is no LPS28DFW
+  // Returns LPS28DFW_OK (0) if WHO_AM_I is 0xB4: another device at 0x5C is "not found" for us.
+  if (sensor.begin(ADDR_LPS28DFW, Wire) != LPS28DFW_OK) return FW_ERR_NOT_FOUND;
+
+  lps28dfw_md_t mode = {};
+  mode.fs = LPS28DFW_1260hPa;
+  mode.odr = LPS28DFW_25Hz;
+  mode.avg = LPS28DFW_16_AVG;
+  mode.lpf = LPS28DFW_LPF_ODR_DIV_4;
+  if (sensor.setModeConfig(&mode) != LPS28DFW_OK) return FW_ERR_NOT_FOUND;
+
+  // Altitude zero: the first valid sample (contract: "the pressure read in bar_begin()").
+  uint32_t t0 = millis();
+  float p = NAN;
+  bool got = false;
+  while (!got && millis() - t0 < kFirstSampleTimeoutMs) {
+    int err = readSample(&p, &got);
+    if (err != FW_OK) return err;
+    if (!got) delay(5);  // setup-only: next sample in <= 40 ms
+  }
+  if (!got) return FW_ERR_TIMEOUT;
+
+  g_p0 = p;
+  g_last.hpa = p;
+  g_last.altitude_m = 0.0f;
+  g_ready = true;
+  g_last_poll_ms = g_last_data_ms = millis();
+  return FW_OK;
+}
+
+}  // namespace
+
+int bar_begin() {
+  g_ready = false;
+  g_begin_err = beginImpl();
+  return g_begin_err;
+}
+
 int bar_update() {
-  if (!g_started) return FW_ERR_NOT_READY;
+  if (g_begin_err != FW_OK) return g_begin_err;  // keep reporting why begin() failed
 
   uint32_t now = millis();
-  if (now - g_last_ms < kPeriodMs) return FW_OK;  // not time yet: come back later, never wait
-  g_last_ms = now;
+  if (now - g_last_poll_ms < kPollMs) return FW_OK;  // not time yet: never wait
+  g_last_poll_ms = now;
 
-  g_count++;
-  if (g_count % kErrorEvery == 0) return FW_ERR_TIMEOUT;  // simulated failure
+  float p = NAN;
+  bool got = false;
+  int err = readSample(&p, &got);
+  if (err != FW_OK) return err;
+  if (!got) return (now - g_last_data_ms > kDataTimeoutMs) ? FW_ERR_TIMEOUT : FW_OK;
 
-  float t = now / 1000.0f;
-  float height_m = 1.0f - cosf(2.0f * PI * t / 20.0f);  // 0 to 2 m and back
-  float hpa = g_p0 - kHpaPerMetre * height_m;
-  if (hpa < kMinHpa || hpa > kMaxHpa) return FW_ERR_BAD_DATA;  // validate before using it
-
-  g_last.hpa = hpa;
-  g_last.altitude_m = altitudeFromPressure(hpa, g_p0);
-  g_ready = true;
+  g_last.hpa = p;
+  g_last.altitude_m = altitudeFromPressure(p, g_p0);
+  g_last_data_ms = now;
   return FW_OK;
 }
 
