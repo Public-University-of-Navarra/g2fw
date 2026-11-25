@@ -5,7 +5,6 @@
 #include <board_pins.h>
 #include <fw_errors.h>
 #include <math.h>
-#include <string.h>
 
 // ============================================================================
 // 1. MAPA DE REGISTROS Y DIRECCIÓN I2C (Datasheet ST LSM6DSV16X)
@@ -118,7 +117,7 @@ int imu_begin() {
   g_initialized = false;
   g_ready = false;
   g_drdy_flag = false;
-  memset(&g_last, 0, sizeof(g_last));
+  g_last = {};
 
   // Paso A: Comprobar que el sensor está conectado y responde en el bus I2C_SENS
   // (main.cpp ya ejecutó Wire.begin(...) antes de llamar a imu_begin()).
