@@ -11,9 +11,33 @@ static const char FW_NAME[] = "g2fw";
 static const char FW_VERSION[] = "1.0.0";
 
 // ---- imu ----
-static void setupImu() {}
-static void loopImu() {}
+// ---- imu ----
+#include <imu.h>
 
+static void setupImu() {
+  int err = imu_begin();
+  if (err != FW_OK) {
+    Serial.printf("[imu] ERR code=%d\r\n", err);
+  }
+}
+
+static void loopImu() {
+  static uint32_t last_print = 0;
+
+  int err = imu_update();
+  if (err != FW_OK) {
+    Serial.printf("[imu] ERR code=%d\r\n", err);
+  }
+
+  if (millis() - last_print >= 1000) {
+    last_print = millis();
+    imu_data_t d;
+    if (imu_get(&d) == FW_OK) {
+      Serial.printf("[imu] ax=%.2f ay=%.2f az=%.2f gx=%.2f gy=%.2f gz=%.2f\r\n", d.ax, d.ay, d.az,
+                    d.gx, d.gy, d.gz);
+    }
+  }
+}
 // ---- bar ----
 #include <bar.h>
 
