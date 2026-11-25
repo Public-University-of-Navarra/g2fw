@@ -8,7 +8,11 @@
 #include <fw_errors.h>
 
 static const char FW_NAME[] = "g2fw";
-static const char FW_VERSION[] = "1.0.0";
+// FW_VERSION comes from git at build time (fw/scripts/version.py): "1.0.2" on a release tag,
+// "1.0.2-3-gabc1234" three commits later. This default is used only without the script.
+#ifndef FW_VERSION
+#define FW_VERSION "0.0.0-unknown"
+#endif
 
 // ---- imu ----
 // ---- imu ----

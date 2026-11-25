@@ -10,7 +10,7 @@ disagree, the code is wrong, or this README is changed first in its own PR.
   moving those two signals.
 - **PlatformIO env:** `esp32` (`pio run -e esp32`). CI builds it in the job `build (esp32)`.
 - **Serial port (UART0, USB of the DevKit):** 115200 baud. This is the output the tests read.
-- **Firmware version:** `1.0.0`.
+- **Firmware version:** taken from the git tags at build time (see *Versions and releases*).
 
 ## Components
 
@@ -187,7 +187,7 @@ UART0 at 115200 baud, one line per message, fields separated by one space, float
 
 | Message | Format                          | When                                       |
 |---------|---------------------------------|--------------------------------------------|
-| Version | `[fw] name=g2fw version=1.0.0`  | once, in `setup()`, just before the banner |
+| Version | `[fw] name=g2fw version=<version>` | once, in `setup()`, just before the banner |
 | Banner  | `FPF-LAB READY`                 | once, the **last** line of `setup()`       |
 | Update  | `[<name>] key=value key=value`  | once per second per component (`millis()`), only when `<name>_get()` returns `FW_OK` |
 | Error   | `[<name>] ERR code=<n>`         | when `begin()` or `update()` returns != 0, at most once per second per component |
@@ -201,7 +201,7 @@ per second. This is the **expected** output, not a bug, and the VnV scenarios mu
 One example line per component:
 
 ```text
-[fw] name=g2fw version=1.0.0
+[fw] name=g2fw version=1.0.2
 FPF-LAB READY
 [imu] ax=0.02 ay=-0.01 az=9.81 gx=0.10 gy=-0.20 gz=0.00
 [bar] hpa=1013.25 alt_m=0.00
@@ -237,6 +237,25 @@ FPF-LAB READY
 - **Own folder only**: each pair changes only `fw/lib/<name>/` and its own `setupX()`/`loopX()`
   slot in `fw/src/main.cpp`.
 - **Same header for mock and real driver**: the `.h` never changes when the mock is replaced.
+
+## Versions and releases
+
+- **Version number** `MAJOR.MINOR.PATCH`. It is never written by hand: `fw/scripts/version.py`
+  (a PlatformIO pre-script) reads it from git at build time and passes it to the code as the
+  macro `FW_VERSION`:
+
+  | Built from                           | `<version>` printed     |
+  |--------------------------------------|-------------------------|
+  | a release tag `v1.0.2`               | `1.0.2`                 |
+  | 3 commits after `v1.0.2`             | `1.0.2-3-g<commit>`     |
+  | with local changes not committed     | `...-dirty` at the end  |
+  | before the first release             | `0.0.0-g<commit>`       |
+
+- **Releases.** Every merge into `main` runs `.github/workflows/release.yml`: it takes the last
+  tag, adds 1 to the patch (`v1.0.0` if there is none), builds the firmware on that tag and
+  publishes the GitHub release with `g2fw-vX.Y.Z.bin` and `.elf` and the list of merged PRs.
+- To start a new minor or major version (`v1.1.0`, `v2.0.0`), a teacher creates that tag by hand;
+  the next merges continue from it.
 
 ## Not in this version
 
