@@ -16,14 +16,14 @@
 namespace {
 
 constexpr uint8_t ZONES = 16;
-constexpr uint16_t NO_TARGET_MM = 4000;        // contract: no target = 4000
-constexpr uint32_t FRAME_PERIOD_MS = 17;       // ~60 Hz, like the real 4x4 mode
-constexpr uint32_t MOCK_ERROR_EVERY = 60;      // one bad frame every 60 (~1 per second)
+constexpr uint16_t NO_TARGET_MM = 4000;    // contract: no target = 4000
+constexpr uint32_t FRAME_PERIOD_MS = 17;   // ~60 Hz, like the real 4x4 mode
+constexpr uint32_t MOCK_ERROR_EVERY = 60;  // one bad frame every 60 (~1 per second)
 
 constexpr uint16_t OBSTACLE_FAR_MM = 2000;
 constexpr uint16_t OBSTACLE_NEAR_MM = 300;
-constexpr uint32_t CYCLE_MS = 20000;           // far -> near -> far
-constexpr uint16_t WALL_BEHIND_MM = 500;       // the wall is 500 mm behind the obstacle
+constexpr uint32_t CYCLE_MS = 20000;      // far -> near -> far
+constexpr uint16_t WALL_BEHIND_MM = 500;  // the wall is 500 mm behind the obstacle
 
 bool started = false;
 bool has_sample = false;
@@ -72,13 +72,13 @@ int tof_front_update() {
   for (uint8_t zone = 0; zone < ZONES; zone++) {
     uint16_t d;
     if (zone < 4) {
-      d = NO_TARGET_MM;                        // top row: nothing in range
+      d = NO_TARGET_MM;  // top row: nothing in range
     } else if (is_center(zone)) {
-      d = obstacle + (zone % 3) * 5;           // a few mm of difference between zones, like the real one
+      d = obstacle + (zone % 3) * 5;  // a few mm of difference between zones, like the real one
     } else {
       d = wall;
     }
-    if (d > NO_TARGET_MM) d = NO_TARGET_MM;    // validate range (0 to 4000)
+    if (d > NO_TARGET_MM) d = NO_TARGET_MM;  // validate range (0 to 4000)
     frame.zone_mm[zone] = d;
     if (d < frame.min_mm) frame.min_mm = d;
   }
