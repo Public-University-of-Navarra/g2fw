@@ -6,7 +6,6 @@
 #include <Wire.h>
 #include <board_pins.h>
 #include <fw_errors.h>
-#include <tof_inf.h>
 
 static const char FW_NAME[] = "g2fw";
 static const char FW_VERSION[] = "1.0.0";
@@ -20,6 +19,7 @@ static void setupBar() {}
 static void loopBar() {}
 
 // ---- tof_inf ----
+#include <tof_inf.h>
 static uint32_t tofInfPrintMs = 0;  // last time a tof_inf line was printed
 
 static void setupTofInf() {
