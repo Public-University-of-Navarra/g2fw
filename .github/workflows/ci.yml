@@ -97,10 +97,32 @@ jobs:
           name: firmware-esp32
           path: fw/.pio/build/esp32
 
-      - name: Run in Wokwi until the banner appears
+      # One simulation per scenario (fw/scenarios, #53). Input names copied from the action's
+      # action.yml: scenario (relative to path) and timeout (ms). 15 s covers the slowest boot
+      # (tof_front_begin() up to 5 s) and keeps the free plan's minutes low.
+      - name: 'Scenario: boot'
         if: steps.ready.outputs.run == 'true'
         uses: wokwi/wokwi-ci-action@v1
         with:
           token: ${{ env.WOKWI_CLI_TOKEN }}
           path: fw
-          expect_text: 'FPF-LAB READY'
+          scenario: scenarios/boot.test.yaml
+          timeout: 15000
+
+      - name: 'Scenario: one line per component'
+        if: steps.ready.outputs.run == 'true'
+        uses: wokwi/wokwi-ci-action@v1
+        with:
+          token: ${{ env.WOKWI_CLI_TOKEN }}
+          path: fw
+          scenario: scenarios/components.test.yaml
+          timeout: 15000
+
+      - name: 'Scenario: error line format'
+        if: steps.ready.outputs.run == 'true'
+        uses: wokwi/wokwi-ci-action@v1
+        with:
+          token: ${{ env.WOKWI_CLI_TOKEN }}
+          path: fw
+          scenario: scenarios/error-path.test.yaml
+          timeout: 15000

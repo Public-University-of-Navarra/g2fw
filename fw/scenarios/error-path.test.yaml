@@ -1,0 +1,12 @@
+# Error path: errors are reported as "[<name>] ERR code=<n>" (contract, "Serial format").
+# The mocks fail on purpose every few seconds; in Wokwi the real drivers report code 1 (sensor
+# not found) and the camera, with no DSP, code 2.
+name: Error line format
+version: 1
+author: g2fw
+
+steps:
+  - name: Boot finished
+    wait-serial: 'FPF-LAB READY'
+  - name: Some component reports an error in the contract format
+    wait-serial: '] ERR code='
