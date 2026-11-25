@@ -29,9 +29,9 @@ static uint32_t g_tof_front_last_print_ms = 0;
 static int g_tof_front_pending_err = FW_OK;
 
 static void setupTofFront() {
-  int err = tof_front_begin();  // may take ~2 s with the real driver (contract, Rules)
+  int err = tof_front_begin();  // real driver: up to 5 s, ~2 s typical (see Rules)
   if (err != FW_OK) {
-    Serial.printf("[tof_front] ERR code=%d\n", err);
+    Serial.printf("[tof_front] ERR code=%d\r\n", err);
   }
 }
 
@@ -46,12 +46,12 @@ static void loopTofFront() {
   g_tof_front_last_print_ms = now;
 
   if (g_tof_front_pending_err != FW_OK) {
-    Serial.printf("[tof_front] ERR code=%d\n", g_tof_front_pending_err);
+    Serial.printf("[tof_front] ERR code=%d\r\n", g_tof_front_pending_err);
     g_tof_front_pending_err = FW_OK;
   }
   tof_front_data_t data;
   if (tof_front_get(&data) == FW_OK) {
-    Serial.printf("[tof_front] mm=%u\n", data.min_mm);
+    Serial.printf("[tof_front] mm=%u\r\n", data.min_mm);
   }
 }
 

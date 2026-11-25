@@ -12,6 +12,6 @@ struct tof_front_data_t {
                          // 4000 = no target in that zone (path clear up to max range)
 };
 
-int tof_front_begin();  // may wait up to 5 s while the driver starts (see Rules)
+int tof_front_begin();  // real driver: up to 5 s, ~2 s typical (see Rules)
 int tof_front_update();
 int tof_front_get(tof_front_data_t *out);
