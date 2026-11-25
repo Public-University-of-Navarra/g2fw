@@ -16,7 +16,7 @@ static constexpr uint8_t LSM6DSV_ADDR = 0x6B;
 
 // Registros internos del sensor que vamos a leer/escribir:
 static constexpr uint8_t REG_INT1_CTRL = 0x0D;  // Configura qué eventos disparan el pin físico INT1
-static constexpr uint8_t REG_WHO_AM_I = 0x0F;  // Registro fijo de identificación del chip
+static constexpr uint8_t REG_WHO_AM_I = 0x0F;   // Registro fijo de identificación del chip
 static constexpr uint8_t WHO_AM_I_EXPECTED = 0x70;  // Valor fijo de fábrica del LSM6DSV16X (0x70)
 static constexpr uint8_t REG_CTRL1 =
     0x10;  // Control acelerómetro: modo de potencia y frecuencia (ODR)
