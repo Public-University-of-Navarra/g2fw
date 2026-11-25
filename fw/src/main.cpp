@@ -116,6 +116,7 @@ static void loopTofFront() {
   if (g_tof_front_pending_err != FW_OK) {
     Serial.printf("[tof_front] ERR code=%d\r\n", g_tof_front_pending_err);
     g_tof_front_pending_err = FW_OK;
+    return;  // this second: the error line only, like the other components (#69)
   }
   tof_front_data_t data;
   if (tof_front_get(&data) == FW_OK) {
