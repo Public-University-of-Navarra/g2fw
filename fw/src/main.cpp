@@ -6,6 +6,7 @@
 #include <Wire.h>
 #include <board_pins.h>
 #include <fw_errors.h>
+#include <tof_inf.h>
 
 static const char FW_NAME[] = "g2fw";
 static const char FW_VERSION[] = "1.0.0";
