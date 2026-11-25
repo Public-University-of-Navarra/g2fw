@@ -137,8 +137,31 @@ static void loopTemp() {
 }
 
 // ---- camera ----
-static void setupCamera() {}
-static void loopCamera() {}
+#include <camera.h>
+
+static uint32_t g_camera_print_ms = 0;  // last time a [camera] line was printed
+static int g_camera_err = FW_OK;        // last error since the previous print
+
+static void setupCamera() {
+  int err = camera_begin();
+  if (err != FW_OK) Serial.printf("[camera] ERR code=%d\r\n", err);
+}
+
+static void loopCamera() {
+  int err = camera_update();
+  if (err != FW_OK) g_camera_err = err;  // keep it until the next print
+
+  if (millis() - g_camera_print_ms < 1000) return;  // print once per second, never wait
+  g_camera_print_ms = millis();
+
+  if (g_camera_err != FW_OK) {
+    Serial.printf("[camera] ERR code=%d\r\n", g_camera_err);
+    g_camera_err = FW_OK;
+    return;
+  }
+  camera_data_t d;
+  if (camera_get(&d) == FW_OK) Serial.printf("[camera] frames=%lu\r\n", (unsigned long)d.frames);
+}
 
 void setup() {
   Serial.begin(SERIAL_BAUD);
