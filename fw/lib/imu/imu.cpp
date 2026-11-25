@@ -14,20 +14,24 @@
 // (Si SA0 estuviera a GND, sería 0x6A).
 static constexpr uint8_t LSM6DSV_ADDR = 0x6B;
 
-// Registros internos del sensor que vamos a leer/escribir:
-static constexpr uint8_t REG_INT1_CTRL = 0x0D;  // Configura qué eventos disparan el pin físico INT1
-static constexpr uint8_t REG_WHO_AM_I = 0x0F;   // Registro fijo de identificación del chip
-static constexpr uint8_t WHO_AM_I_EXPECTED = 0x70;  // Valor fijo de fábrica del LSM6DSV16X (0x70)
-static constexpr uint8_t REG_CTRL1 =
-    0x10;  // Control acelerómetro: modo de potencia y frecuencia (ODR)
-static constexpr uint8_t REG_CTRL2 =
-    0x11;  // Control giroscopio: modo de potencia y frecuencia (ODR)
-static constexpr uint8_t REG_CTRL3 =
-    0x12;  // Control general: reset por software, BDU e autoincremento
-static constexpr uint8_t REG_CTRL6 = 0x15;  // Fondo de escala (rango máximo) del giroscopio
-static constexpr uint8_t REG_CTRL8 = 0x17;  // Fondo de escala (rango máximo) del acelerómetro
-static constexpr uint8_t REG_OUTX_L_G =
-    0x22;  // Primer byte de datos: empieza Gyro X (L/H), Y, Z y sigue Accel X, Y, Z
+// Configura qué eventos disparan el pin físico INT1
+static constexpr uint8_t REG_INT1_CTRL = 0x0D;
+// Registro fijo de identificación del chip
+static constexpr uint8_t REG_WHO_AM_I = 0x0F;
+// Valor fijo de fábrica del LSM6DSV16X (0x70)
+static constexpr uint8_t WHO_AM_I_EXPECTED = 0x70;
+// Control acelerómetro: modo de potencia y frecuencia (ODR)
+static constexpr uint8_t REG_CTRL1 = 0x10;
+// Control giroscopio: modo de potencia y frecuencia (ODR)
+static constexpr uint8_t REG_CTRL2 = 0x11;
+// Control general: reset por software, BDU e autoincremento
+static constexpr uint8_t REG_CTRL3 = 0x12;
+// Fondo de escala (rango máximo) del giroscopio
+static constexpr uint8_t REG_CTRL6 = 0x15;
+// Fondo de escala (rango máximo) del acelerómetro
+static constexpr uint8_t REG_CTRL8 = 0x17;
+// Primer byte de datos: empieza Gyro X (L/H), Y, Z y sigue Accel X, Y, Z
+static constexpr uint8_t REG_OUTX_L_G = 0x22;
 
 // ============================================================================
 // 2. FACTORES DE CONVERSIÓN FÍSICA (LSB -> Unidades SI)
