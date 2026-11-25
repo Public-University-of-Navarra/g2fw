@@ -27,7 +27,6 @@ static void setupTofFront() {}
 static void loopTofFront() {}
 
 // ---- temp ----
-
 #include <temp.h>
 
 static uint32_t g_temp_last_print_ms = 0;
@@ -36,7 +35,7 @@ static int g_temp_pending_err = FW_OK;
 static void setupTemp() {
   int err = temp_begin();
   if (err != FW_OK) {
-    Serial.printf("[temp] ERR code=%d\n", err);
+    Serial.printf("[temp] ERR code=%d\r\n", err);
   }
 }
 
@@ -50,12 +49,12 @@ static void loopTemp() {
   if (now - g_temp_last_print_ms >= 1000) {
     g_temp_last_print_ms = now;
     if (g_temp_pending_err != FW_OK) {
-      Serial.printf("[temp] ERR code=%d\n", g_temp_pending_err);
+      Serial.printf("[temp] ERR code=%d\r\n", g_temp_pending_err);
       g_temp_pending_err = FW_OK;
     } else {
       float celsius = 0.0f;
       if (temp_get(&celsius) == FW_OK) {
-        Serial.printf("[temp] c=%.2f\n", celsius);
+        Serial.printf("[temp] c=%.2f\r\n", celsius);
       }
     }
   }

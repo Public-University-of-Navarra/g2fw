@@ -2,12 +2,12 @@
 
 #include <Arduino.h>
 
-static bool g_ready = false;    // ¿hay ya una muestra válida?
-static float g_last = 0.0f;     // última muestra válida (°C)
-static uint32_t g_t = 0;        // última vez que se "midió"
-static uint32_t g_n = 0;        // contador de lecturas
-static float g_sim = 21.50f;    // temperatura simulada inicial
-static float g_step = 0.05f;    // variación suave por lectura
+static bool g_ready = false;  // ¿hay ya una muestra válida?
+static float g_last = 0.0f;   // última muestra válida (°C)
+static uint32_t g_t = 0;      // última vez que se "midió"
+static uint32_t g_n = 0;      // contador de lecturas
+static float g_sim = 21.50f;  // temperatura simulada inicial
+static float g_step = 0.05f;  // variación suave por lectura
 
 int temp_begin() {
   g_ready = false;
@@ -35,7 +35,7 @@ int temp_update() {
   return FW_OK;
 }
 
-int temp_get(float *celsius) {
+int temp_get(float* celsius) {
   if (celsius == nullptr) return FW_ERR_BAD_DATA;
   if (!g_ready) return FW_ERR_NOT_READY;  // aún no hay dato
   *celsius = g_last;

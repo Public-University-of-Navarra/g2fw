@@ -4,4 +4,4 @@
 
 int temp_begin();
 int temp_update();
-int temp_get(float *celsius);  // temperature, degC
+int temp_get(float* celsius);  // temperature, degC
