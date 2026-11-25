@@ -20,8 +20,24 @@ static void setupBar() {}
 static void loopBar() {}
 
 // ---- tof_inf ----
-static void setupTofInf() {}
-static void loopTofInf() {}
+static uint32_t tofInfPrintMs = 0;  // last time a tof_inf line was printed
+
+static void setupTofInf() {
+  int err = tof_inf_begin();
+  if (err != FW_OK) Serial.printf("[tof_inf] ERR code=%d\r\n", err);
+}
+
+static void loopTofInf() {
+  int err = tof_inf_update();
+  if (millis() - tofInfPrintMs < 1000) return;  // at most one line per second
+  tofInfPrintMs = millis();
+  uint16_t mm;
+  if (err != FW_OK) {
+    Serial.printf("[tof_inf] ERR code=%d\r\n", err);
+  } else if (tof_inf_get(&mm) == FW_OK) {
+    Serial.printf("[tof_inf] mm=%u\r\n", mm);
+  }
+}
 
 // ---- tof_front ----
 static void setupTofFront() {}
