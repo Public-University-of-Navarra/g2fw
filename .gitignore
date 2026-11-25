@@ -1,0 +1,11 @@
+# PlatformIO build output and local settings
+.pio/
+.vscode/
+!.vscode/extensions.json
+
+# Wokwi CLI local output
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
