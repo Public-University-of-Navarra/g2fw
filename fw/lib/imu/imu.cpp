@@ -179,7 +179,7 @@ int imu_begin() {
 int imu_update() {
   // Si imu_begin() falló (por ejemplo, sensor desconectado), no intentamos leer nada.
   if (!g_initialized) {
-    return FW_ERR_NOT_READY;
+    return FW_OK;
   }
 
   // Si aún no ha saltado la interrupción de dato nuevo:

@@ -11,7 +11,6 @@ static const char FW_NAME[] = "g2fw";
 static const char FW_VERSION[] = "1.0.0";
 
 // ---- imu ----
-// ---- imu ----
 #include <imu.h>
 
 static void setupImu() {
