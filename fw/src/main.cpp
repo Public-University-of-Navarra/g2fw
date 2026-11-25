@@ -15,8 +15,31 @@ static void setupImu() {}
 static void loopImu() {}
 
 // ---- bar ----
-static void setupBar() {}
-static void loopBar() {}
+#include <bar.h>
+
+static uint32_t g_bar_print_ms = 0;  // last time a [bar] line was printed
+static int g_bar_err = FW_OK;        // last error since the previous print
+
+static void setupBar() {
+  int err = bar_begin();
+  if (err != FW_OK) Serial.printf("[bar] ERR code=%d\r\n", err);
+}
+
+static void loopBar() {
+  int err = bar_update();
+  if (err != FW_OK) g_bar_err = err;  // keep it until the next print
+
+  if (millis() - g_bar_print_ms < 1000) return;  // print once per second, never wait
+  g_bar_print_ms = millis();
+
+  if (g_bar_err != FW_OK) {
+    Serial.printf("[bar] ERR code=%d\r\n", g_bar_err);
+    g_bar_err = FW_OK;
+    return;
+  }
+  bar_data_t d;
+  if (bar_get(&d) == FW_OK) Serial.printf("[bar] hpa=%.2f alt_m=%.2f\r\n", d.hpa, d.altitude_m);
+}
 
 // ---- tof_inf ----
 static void setupTofInf() {}
@@ -107,7 +130,7 @@ void setup() {
   setupTemp();
   setupCamera();
 
-  Serial.printf("[fw] name=%s version=%s\n", FW_NAME, FW_VERSION);
+  Serial.printf("[fw] name=%s version=%s\r\n", FW_NAME, FW_VERSION);
   Serial.println("FPF-LAB READY");  // must be the LAST line of setup()
 }
 
