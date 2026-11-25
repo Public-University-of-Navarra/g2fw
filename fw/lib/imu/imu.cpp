@@ -35,44 +35,30 @@ static constexpr uint8_t REG_OUTX_L_G = 0x22;
 // ============================================================================
 // 2. FACTORES DE CONVERSIÓN FÍSICA (LSB -> Unidades SI)
 // ============================================================================
-// El sensor entrega enteros de 16 bits con signo (int16_t: de -32768 a +32767).
-// Según el datasheet del LSM6DSV16X:
-// - Para ±4g, cada bit menos significativo (1 LSB) equivale a 0.122 mg.
-//   Multiplicamos por 0.001 para pasar a 'g' y por 9.80665 para pasar a m/s^2.
+// Para ±4g, 1 LSB = 0.122 mg -> m/s^2
 static constexpr float ACCEL_SENS_4G = 0.122f * 0.001f * 9.80665f;
-
-// - Para ±500 dps (grados/segundo), cada 1 LSB equivale a 17.50 mdps.
-//   Multiplicamos por 0.001 para pasar directamente a deg/s.
+// Para ±500 dps, 1 LSB = 17.50 mdps -> deg/s
 static constexpr float GYRO_SENS_500DPS = 17.50f * 0.001f;
 
 // ============================================================================
 // 3. UMBRALES DE SEGURIDAD Y TEMPORIZACIÓN
 // ============================================================================
-// Margen del 5 % sobre el fondo de escala para detectar lecturas corruptas o saturadas.
 static constexpr float MAX_ACCEL_MS2 = 4.0f * 9.80665f * 1.05f;
 static constexpr float MAX_GYRO_DPS = 500.0f * 1.05f;
-
-// Como configuramos el sensor a 120 Hz, genera una muestra nueva cada 1/120 s ≈ 8.33 ms.
-// Si pasan más de 50 ms (~6 muestras perdidas) sin interrupción, damos error de timeout.
 static constexpr uint32_t SAMPLE_TIMEOUT_MS = 50;
 
 // ============================================================================
 // 4. ESTADO INTERNO DEL DRIVER Y VARIABLES DE INTERRUPCIÓN
 // ============================================================================
-static bool g_initialized = false;     // true si imu_begin() encontró y configuró el chip
-static bool g_ready = false;           // true en cuanto tenemos al menos una muestra válida
-static imu_data_t g_last = {};         // Última muestra válida lista para entregar en imu_get()
-static uint32_t g_last_sample_ms = 0;  // Marca de tiempo (ms) de la última muestra recibida
+static bool g_initialized = false;
+static int g_begin_err = FW_ERR_NOT_READY;
+static bool g_ready = false;
+static imu_data_t g_last = {};
+static uint32_t g_last_sample_ms = 0;
 
-// 'volatile' evita que el compilador optimice estas variables pensando que no cambian solas,
-// ya que las modifica la rutina de interrupción (ISR) en segundo plano.
-static volatile bool g_drdy_flag = false;  // Se pone a true cuando el sensor avisa por INT1
-static volatile uint32_t g_drdy_us = 0;    // Instante exacto (us) en que saltó la interrupción
+static volatile bool g_drdy_flag = false;
+static volatile uint32_t g_drdy_us = 0;
 
-// Rutina de Servicio de Interrupción (ISR):
-// - IRAM_ATTR obliga a guardar esta función en la RAM interna del ESP32 (no en Flash)
-//   para que pueda ejecutarse al instante aunque la Flash esté ocupada.
-// - Nunca hacemos I2C aquí dentro (Wire usa interrupciones y bloquearía el micro).
 static void IRAM_ATTR on_imu_int1() {
   g_drdy_us = micros();
   g_drdy_flag = true;
@@ -81,20 +67,16 @@ static void IRAM_ATTR on_imu_int1() {
 // ============================================================================
 // 5. FUNCIONES AUXILIARES DE COMUNICACIÓN I2C (Wire)
 // ============================================================================
-// Escribe 1 byte ('val') en un registro interno ('reg') del sensor.
 static bool write_reg(uint8_t reg, uint8_t val) {
   Wire.beginTransmission(LSM6DSV_ADDR);
   Wire.write(reg);
   Wire.write(val);
-  // endTransmission() devuelve 0 si el esclavo respondió con ACK correctamente.
   return (Wire.endTransmission() == 0);
 }
 
-// Lee 'len' bytes consecutivos empezando en 'start_reg' y los guarda en 'buf'.
 static bool read_regs(uint8_t start_reg, uint8_t* buf, size_t len) {
   Wire.beginTransmission(LSM6DSV_ADDR);
   Wire.write(start_reg);
-  // 'false' envía un Repeated Start (no suelta el bus I2C) para encadenar la lectura.
   if (Wire.endTransmission(false) != 0) {
     return false;
   }
@@ -115,64 +97,66 @@ static bool read_regs(uint8_t start_reg, uint8_t* buf, size_t len) {
 // ============================================================================
 int imu_begin() {
   g_initialized = false;
+  g_begin_err = FW_ERR_NOT_READY;
   g_ready = false;
   g_drdy_flag = false;
   g_last = {};
 
-  // Paso A: Comprobar que el sensor está conectado y responde en el bus I2C_SENS
-  // (main.cpp ya ejecutó Wire.begin(...) antes de llamar a imu_begin()).
   uint8_t who = 0;
   if (!read_regs(REG_WHO_AM_I, &who, 1) || who != WHO_AM_I_EXPECTED) {
-    return FW_ERR_NOT_FOUND;
+    g_begin_err = FW_ERR_NOT_FOUND;
+    return g_begin_err;
   }
 
-  // Paso B: Reset por software (bit 0 de CTRL3 = 1) para borrar cualquier configuración previa
+  // Software reset
   if (!write_reg(REG_CTRL3, 0x01)) {
-    return FW_ERR_TIMEOUT;
+    g_begin_err = FW_ERR_TIMEOUT;
+    return g_begin_err;
   }
-  delay(10);  // setup-only: tiempo que tarda el chip en reiniciar su lógica interna
+  delay(10);  // setup-only
 
-  // Paso C: Configurar CTRL3 (0x44 = 0b0100_0100):
-  // - Bit 6 (BDU = 1): Block Data Update. Impide que el sensor sobrescriba el byte alto (MSB)
-  //   mientras estamos leyendo el byte bajo (LSB), evitando mezclar mitades de muestras distintas.
-  // - Bit 2 (IF_INC = 1): Auto-incrementa la dirección de registro en cada byte leído en ráfaga.
+  // CTRL3: BDU=1 (0x40) + IF_INC=1 (0x04)
   if (!write_reg(REG_CTRL3, 0x44)) {
-    return FW_ERR_TIMEOUT;
+    g_begin_err = FW_ERR_TIMEOUT;
+    return g_begin_err;
   }
 
-  // Paso D: Rango de medida del acelerómetro en CTRL8 (0x01 -> ±4g)
+  // CTRL8: Accel Full-Scale = ±4g (0x01)
   if (!write_reg(REG_CTRL8, 0x01)) {
-    return FW_ERR_TIMEOUT;
+    g_begin_err = FW_ERR_TIMEOUT;
+    return g_begin_err;
   }
 
-  // Paso E: Rango de medida del giroscopio en CTRL6 (0x02 -> ±500 dps)
+  // CTRL6: Gyro Full-Scale = ±500 dps (0x02)
   if (!write_reg(REG_CTRL6, 0x02)) {
-    return FW_ERR_TIMEOUT;
+    g_begin_err = FW_ERR_TIMEOUT;
+    return g_begin_err;
   }
 
-  // Paso F: Encender acelerómetro en modo High-Performance a 120 Hz (CTRL1 = 0x06)
+  // CTRL1: Accel High-Performance + ODR 120 Hz (0x06)
   if (!write_reg(REG_CTRL1, 0x06)) {
-    return FW_ERR_TIMEOUT;
+    g_begin_err = FW_ERR_TIMEOUT;
+    return g_begin_err;
   }
 
-  // Paso G: Encender giroscopio en modo High-Performance a 120 Hz (CTRL2 = 0x06)
+  // CTRL2: Gyro High-Performance + ODR 120 Hz (0x06)
   if (!write_reg(REG_CTRL2, 0x06)) {
-    return FW_ERR_TIMEOUT;
+    g_begin_err = FW_ERR_TIMEOUT;
+    return g_begin_err;
   }
 
-  // Paso H: Enrutar la señal física "Data Ready" del acelerómetro al pin INT1 (bit 0 = 1).
-  // Cada vez que haya una muestra nueva lista, el chip pondrá el pin INT1_IMU a nivel alto (3.3V).
+  // INT1_CTRL: Data-Ready de acelerómetro en INT1 (0x01)
   if (!write_reg(REG_INT1_CTRL, 0x01)) {
-    return FW_ERR_TIMEOUT;
+    g_begin_err = FW_ERR_TIMEOUT;
+    return g_begin_err;
   }
 
-  // Paso I: Configurar el pin del ESP32 (definido en board_pins.h) y asociar nuestra ISR
-  // al flanco de subida (RISING: paso de 0V a 3.3V).
   pinMode(PIN_IMU_INT1, INPUT);
   attachInterrupt(digitalPinToInterrupt(PIN_IMU_INT1), on_imu_int1, RISING);
 
   g_last_sample_ms = millis();
   g_initialized = true;
+  g_begin_err = FW_OK;
   return FW_OK;
 }
 
@@ -180,33 +164,24 @@ int imu_begin() {
 // 7. ACTUALIZACIÓN NO BLOQUEANTE (Se llama continuamente en loop)
 // ============================================================================
 int imu_update() {
-  // Si imu_begin() falló (por ejemplo, sensor desconectado), no intentamos leer nada.
   if (!g_initialized) {
-    return FW_ERR_NOT_READY;
+    return g_begin_err;
   }
 
-  // Si aún no ha saltado la interrupción de dato nuevo:
-  if (!g_drdy_flag) {
-    // Comprobamos si el sensor se ha quedado colgado (lleva demasiado sin avisar)
-    if (millis() - g_last_sample_ms > SAMPLE_TIMEOUT_MS) {
-      return FW_ERR_TIMEOUT;
-    }
-    // Si está dentro del tiempo normal entre muestras (~8.3 ms), salimos sin bloquear
-    return FW_OK;
+  // Comprobamos tanto la bandera de interrupción como el nivel físico del pin INT1
+  // (enclavado en HIGH hasta que se leen los registros de salida). Si salta timeout,
+  // forzamos una lectura de recuperación para limpiar el latch.
+  if (!g_drdy_flag && digitalRead(PIN_IMU_INT1) == LOW) {
+    return (millis() - g_last_sample_ms > SAMPLE_TIMEOUT_MS) ? FW_ERR_TIMEOUT : FW_OK;
   }
 
-  // Bajamos la bandera antes de leer por I2C para no perder el siguiente aviso
   g_drdy_flag = false;
 
-  // Leemos de golpe 12 bytes desde 0x22 (OUTX_L_G) hasta 0x2D (OUTZ_H_A).
-  // El mapa interno del LSM6DSV16X coloca primero los 6 bytes del giroscopio
-  // y justo a continuación los 6 bytes del acelerómetro, en formato Little-Endian (LSB primero).
   uint8_t raw[12] = {0};
   if (!read_regs(REG_OUTX_L_G, raw, sizeof(raw))) {
     return FW_ERR_TIMEOUT;
   }
 
-  // Reconstruimos los enteros de 16 bits con signo uniendo (MSB << 8) | LSB:
   int16_t raw_gx = static_cast<int16_t>((raw[1] << 8) | raw[0]);
   int16_t raw_gy = static_cast<int16_t>((raw[3] << 8) | raw[2]);
   int16_t raw_gz = static_cast<int16_t>((raw[5] << 8) | raw[4]);
@@ -215,7 +190,6 @@ int imu_update() {
   int16_t raw_ay = static_cast<int16_t>((raw[9] << 8) | raw[8]);
   int16_t raw_az = static_cast<int16_t>((raw[11] << 8) | raw[10]);
 
-  // Convertimos a unidades físicas reales (deg/s y m/s^2)
   imu_data_t sample;
   sample.gx = raw_gx * GYRO_SENS_500DPS;
   sample.gy = raw_gy * GYRO_SENS_500DPS;
@@ -225,8 +199,6 @@ int imu_update() {
   sample.ay = raw_ay * ACCEL_SENS_4G;
   sample.az = raw_az * ACCEL_SENS_4G;
 
-  // Validación de seguridad: descartamos la muestra si algún eje es NaN/Infinito
-  // o supera el rango físico configurado (±4g / ±500 dps).
   if (!isfinite(sample.ax) || !isfinite(sample.ay) || !isfinite(sample.az) ||
       !isfinite(sample.gx) || !isfinite(sample.gy) || !isfinite(sample.gz) ||
       fabsf(sample.ax) > MAX_ACCEL_MS2 || fabsf(sample.ay) > MAX_ACCEL_MS2 ||
@@ -235,7 +207,6 @@ int imu_update() {
     return FW_ERR_BAD_DATA;
   }
 
-  // Guardamos la muestra ya validada y actualizamos el reloj de última recepción
   g_last = sample;
   g_last_sample_ms = millis();
   g_ready = true;
@@ -249,7 +220,6 @@ int imu_get(imu_data_t* out) {
   if (out == nullptr) {
     return FW_ERR_BAD_DATA;
   }
-  // Según el contrato, si aún no hay ninguna muestra válida, no tocamos *out
   if (!g_ready) {
     return FW_ERR_NOT_READY;
   }

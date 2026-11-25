@@ -11,11 +11,15 @@ static const char FW_NAME[] = "g2fw";
 static const char FW_VERSION[] = "1.0.0";
 
 // ---- imu ----
+// ---- imu ----
 #include <imu.h>
+
+static int g_imu_err = FW_OK;
 
 static void setupImu() {
   int err = imu_begin();
   if (err != FW_OK) {
+    g_imu_err = err;
     Serial.printf("[imu] ERR code=%d\r\n", err);
   }
 }
@@ -25,16 +29,24 @@ static void loopImu() {
 
   int err = imu_update();
   if (err != FW_OK) {
-    Serial.printf("[imu] ERR code=%d\r\n", err);
+    g_imu_err = err;
   }
 
-  if (millis() - last_print >= 1000) {
-    last_print = millis();
-    imu_data_t d;
-    if (imu_get(&d) == FW_OK) {
-      Serial.printf("[imu] ax=%.2f ay=%.2f az=%.2f gx=%.2f gy=%.2f gz=%.2f\r\n", d.ax, d.ay, d.az,
-                    d.gx, d.gy, d.gz);
-    }
+  if (millis() - last_print < 1000) {
+    return;
+  }
+  last_print = millis();
+
+  if (g_imu_err != FW_OK) {
+    Serial.printf("[imu] ERR code=%d\r\n", g_imu_err);
+    g_imu_err = FW_OK;
+    return;
+  }
+
+  imu_data_t d;
+  if (imu_get(&d) == FW_OK) {
+    Serial.printf("[imu] ax=%.2f ay=%.2f az=%.2f gx=%.2f gy=%.2f gz=%.2f\r\n", d.ax, d.ay, d.az,
+                  d.gx, d.gy, d.gz);
   }
 }
 // ---- bar ----
