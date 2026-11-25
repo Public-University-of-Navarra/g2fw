@@ -108,7 +108,8 @@ Defined once in `fw/lib/common/fw_errors.h`. No C++ exceptions.
 
 ## Pin mapping
 
-Taken from the schematic (`Grupo_2/ESP32.kicad_sch`) and the final schematic + PCB review.
+Taken from the board we sent to fabrication (rev B, 19/11/2026): schematic and PCB give the same
+pins. The pins of rev A (first routing) are **no longer valid**.
 Pin numbers are written **only** in `fw/lib/common/board_pins.h`; libraries include it and never
 hard-code a number. Everything is 3.3 V; no level shifters.
 
@@ -117,7 +118,7 @@ Buses, started in `main.cpp` before any `<name>_begin()`:
 | Bus      | Arduino object | SDA  | SCL  | Speed   | Devices (7-bit address)                                     |
 |----------|----------------|------|------|---------|-------------------------------------------------------------|
 | I2C_SENS | `Wire`         | IO21 | IO22 | 400 kHz | VL53L1X 0x29, MCP9808 0x18, LPS28DFW 0x5C, LSM6DSV16X 0x6B   |
-| I2C_TOF  | `Wire1`        | IO32 | IO33 | 400 kHz | VL53L8CX 0x29                                               |
+| I2C_TOF  | `Wire1`        | IO27 | IO26 | 400 kHz | VL53L8CX 0x29                                               |
 
 The two ToF sensors share address 0x29 but sit on different buses, so there is no clash.
 
@@ -125,25 +126,34 @@ Other signals:
 
 | Component | Signal          | ESP32 pin | Direction              |
 |-----------|-----------------|-----------|------------------------|
-| imu       | INT1_IMU        | IO25      | input (interrupt)      |
-| imu       | INT2_IMU        | IO26      | input (spare)          |
-| bar       | INT_ALT         | IO27      | input (interrupt)      |
-| tof_inf   | XSHUT_TOF_INF   | IO18      | output, LOW = off      |
-| tof_inf   | INT_TOF_INF     | IO35      | input only, no internal pull-up (pull-up on the SATEL board) |
-| tof_front | LPN_TOF_FRONT   | IO19      | output                 |
-| tof_front | PWR_EN_FRONT    | IO2       | output (boot strapping pin) |
+| imu       | INT1_IMU        | IO19      | input (interrupt)      |
+| imu       | INT2_IMU        | IO18      | input (spare)          |
+| bar       | INT_ALT         | IO17      | input (interrupt)      |
+| tof_inf   | XSHUT_TOF_INF   | IO4       | output, LOW = off      |
+| tof_inf   | INT_TOF_INF     | IO16      | input (pull-up on the SATEL board) |
+| tof_front | LPN_TOF_FRONT   | IO13      | output                 |
+| tof_front | PWR_EN_FRONT    | IO12      | output, LOW at boot (see below) |
 | tof_front | INT_TOF_FRONT   | IO34      | input only, no internal pull-up (pull-up on the SATEL board) |
-| tof_front | SYNC_TOF_FRONT  | IO23      | output (not used yet)  |
-| camera    | DSP_SYNC        | IO4       | input, pulse per image |
-| (status)  | LED_ESTADO      | IO12      | output (boot strapping pin) |
+| tof_front | SYNC_TOF_FRONT  | IO14      | keep as INPUT until it is used (see below) |
+| camera    | DSP_SYNC        | IO33      | input, pulse per image |
+| (status)  | LED_ESTADO      | IO2       | output                 |
+
+Boot (strapping) pins, handle with care:
+
+- **IO12 (PWR_EN_FRONT)** is MTDI: if it is HIGH at boot, the ESP32 sets its flash to 1.8 V and
+  does not start. The 100 kΩ pull-down of the SATEL board keeps it LOW. Never add a pull-up.
+- **IO2 (LED_ESTADO)** must be LOW or floating to enter download mode; the LED to GND keeps it
+  LOW. On the breadboard DOIT board, its blue LED is now the status LED.
+- **IO14 (SYNC_TOF_FRONT)** outputs pulses during boot. Harmless, because the sensor is still off
+  (PWR_EN LOW), but configure it as INPUT until the sync feature is used.
 
 Reserved, nobody else uses them:
 
-| Pins        | Use                                                        |
-|-------------|------------------------------------------------------------|
-| IO1 / IO3   | UART0: USB of the DevKit, contract serial output           |
-| IO13 / IO14 | UART1 TX / RX: data link with the DSP (460800 baud)        |
-| IO17 / IO16 | UART2 TX / RX: Pixhawk flight controller (MAVLink v2)      |
+| Pins        | Use                                                                   |
+|-------------|-----------------------------------------------------------------------|
+| IO1 / IO3   | UART0: USB of the DevKit, contract serial output                      |
+| IO32 / IO35 | UART1 TX (DSP_LINK_A) / RX (DSP_LINK_B, input only): DSP, 460800 baud |
+| IO25 / IO39 | UART2 TX / RX (input only): Pixhawk flight controller (MAVLink v2)    |
 
 ## Serial format
 
