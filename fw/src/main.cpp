@@ -27,8 +27,39 @@ static void setupTofFront() {}
 static void loopTofFront() {}
 
 // ---- temp ----
-static void setupTemp() {}
-static void loopTemp() {}
+
+#include <temp.h>
+
+static uint32_t g_temp_last_print_ms = 0;
+static int g_temp_pending_err = FW_OK;
+
+static void setupTemp() {
+  int err = temp_begin();
+  if (err != FW_OK) {
+    Serial.printf("[temp] ERR code=%d\n", err);
+  }
+}
+
+static void loopTemp() {
+  int err = temp_update();
+  if (err != FW_OK) {
+    g_temp_pending_err = err;
+  }
+
+  uint32_t now = millis();
+  if (now - g_temp_last_print_ms >= 1000) {
+    g_temp_last_print_ms = now;
+    if (g_temp_pending_err != FW_OK) {
+      Serial.printf("[temp] ERR code=%d\n", g_temp_pending_err);
+      g_temp_pending_err = FW_OK;
+    } else {
+      float celsius = 0.0f;
+      if (temp_get(&celsius) == FW_OK) {
+        Serial.printf("[temp] c=%.2f\n", celsius);
+      }
+    }
+  }
+}
 
 // ---- camera ----
 static void setupCamera() {}
