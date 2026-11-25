@@ -19,7 +19,8 @@ Every component lives in `fw/lib/<name>/` (`<name>.h` + `<name>.cpp`) and follow
 ```cpp
 #include <fw_errors.h>
 
-int <name>_begin();            // call once in setup(). Returns FW_OK or an error code.
+int <name>_begin();            // call once in setup(). May wait (see Rules). Returns FW_OK or an
+                               // error code.
 int <name>_update();           // call on every loop(). Never waits. Returns FW_OK if there was
                                // nothing to do or the read worked, or an error code if it failed.
 int <name>_get(<type> *out);   // copies the LAST VALID sample into *out and returns FW_OK.
@@ -80,14 +81,18 @@ int tof_inf_get(uint16_t *mm);  // distance to the ground, mm (0 to 4000)
 
 ```cpp
 struct tof_front_data_t {
-  uint16_t min_mm;       // closest obstacle over the 16 zones, mm (0 to 4000)
-  uint16_t zone_mm[16];  // distance of each zone, mm, in the order given by the ST driver
+  uint16_t min_mm;       // closest obstacle over the 16 zones, mm (0 to 4000); 4000 if all zones are clear
+  uint16_t zone_mm[16];  // distance of each zone, mm, in the order given by the ST driver;
+                         // 4000 = no target in that zone (path clear up to max range)
 };
 
-int tof_front_begin();   // the only function allowed to block, once (see Rules)
+int tof_front_begin();   // may wait up to 5 s while the driver starts (see Rules)
 int tof_front_update();
 int tof_front_get(tof_front_data_t *out);
 ```
+
+A zone is valid only with ST target status 5 or 9 (UM3109). Status 255 (no target) is reported as 4000.
+The SATEL-VL53L8 board is powered at **5 V** through EXT_5V0; its signals are 3.3 V.
 
 ### temp: temperature sensor (MCP9808)
 
@@ -131,7 +136,8 @@ Defined once in `fw/lib/common/fw_errors.h`. No C++ exceptions.
 Taken from the board we sent to fabrication (rev B, 19/11/2026): schematic and PCB give the same
 pins. The pins of rev A (first routing) are **no longer valid**.
 Pin numbers are written **only** in `fw/lib/common/board_pins.h`; libraries include it and never
-hard-code a number. Everything is 3.3 V; no level shifters.
+hard-code a number. All signals are 3.3 V; no level shifters on our board. The only 5 V supply is
+the SATEL-VL53L8 (EXT_5V0).
 
 Buses, started in `main.cpp` before any `<name>_begin()`:
 
@@ -209,11 +215,18 @@ FPF-LAB READY
 
 ## Rules
 
-- **Non-blocking**: no `delay()` anywhere in `fw/lib` (CI fails if it finds one). Use `millis()`.
-- **The only exception**: `tof_front_begin()` may block **once, in `setup()`**, while the ST
-  driver uploads its ~84 KB firmware to the VL53L8CX over I2C and waits for it (`WaitMs()`).
-  The ST driver comes in as an external library, not inside `fw/lib`. `tof_front_update()`
-  never blocks.
+- **Non-blocking**: `<name>_update()` and the getters never wait. Use `millis()` instead of
+  `delay()`.
+- **One-time waits only in `<name>_begin()`**: it runs once, in `setup()`, so a wait there only
+  delays boot (sensor boot time, a firmware upload...). Every `delay()` inside a
+  `<name>_begin()` is marked on the same line with `// setup-only`, e.g.
+  `delay(10);  // setup-only`. CI's `lint` job rejects any `delay(` in `fw/lib` without that mark.
+- **`tof_front` start-up**: `tof_front_begin()` waits while the ST driver uploads its ~84 KB
+  firmware to the VL53L8CX over I2C (`WaitMs()`). The ST driver comes in as an external
+  library, not inside `fw/lib`. Before calling the ST init, `tof_front_begin()` checks for an
+  ACK at 0x29 and returns `FW_ERR_NOT_FOUND` at once if there is none (the ST driver would retry
+  forever). The whole start-up is bounded to 5 s, or it returns `FW_ERR_TIMEOUT`. Expected time
+  ≈2 s at 400 kHz (measured in test 05); VnV waits up to 5 s for the banner.
 - **Interrupts**: an interrupt routine is marked `IRAM_ATTR` and only saves `micros()` and sets
   a flag. Every variable it writes is `volatile`. The main code copies them with interrupts
   disabled (`portENTER_CRITICAL()` / `portEXIT_CRITICAL()`) when they are wider than 32 bits or
