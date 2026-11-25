@@ -66,8 +66,29 @@ static void loopBar() {
 }
 
 // ---- tof_inf ----
-static void setupTofInf() {}
-static void loopTofInf() {}
+#include <tof_inf.h>
+
+static uint32_t tofInfPrintMs = 0;  // last time a tof_inf line was printed
+static int tofInfErr = FW_OK;       // last error since the previous print
+
+static void setupTofInf() {
+  int err = tof_inf_begin();
+  if (err != FW_OK) Serial.printf("[tof_inf] ERR code=%d\r\n", err);
+}
+
+static void loopTofInf() {
+  int err = tof_inf_update();
+  if (err != FW_OK) tofInfErr = err;            // keep it until the next print
+  if (millis() - tofInfPrintMs < 1000) return;  // at most one line per second
+  tofInfPrintMs = millis();
+  uint16_t mm;
+  if (tofInfErr != FW_OK) {
+    Serial.printf("[tof_inf] ERR code=%d\r\n", tofInfErr);
+    tofInfErr = FW_OK;
+  } else if (tof_inf_get(&mm) == FW_OK) {
+    Serial.printf("[tof_inf] mm=%u\r\n", mm);
+  }
+}
 
 // ---- tof_front ----
 #include <tof_front.h>
