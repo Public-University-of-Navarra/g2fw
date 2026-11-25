@@ -1,0 +1,23 @@
+# Every component prints its own line after the banner (contract, "Serial format").
+# Only the "[<name>] " prefix is checked, so the scenario passes with the mocks ("[bar] hpa=...")
+# and with the real drivers in Wokwi, where our sensors do not exist and the line is
+# "[bar] ERR code=1" (not found).
+name: One line per component
+version: 1
+author: g2fw
+
+steps:
+  - name: Boot finished
+    wait-serial: 'FPF-LAB READY'
+  - name: imu
+    wait-serial: '[imu] '
+  - name: bar
+    wait-serial: '[bar] '
+  - name: tof_inf
+    wait-serial: '[tof_inf] '
+  - name: tof_front
+    wait-serial: '[tof_front] '
+  - name: temp
+    wait-serial: '[temp] '
+  - name: camera
+    wait-serial: '[camera] '
