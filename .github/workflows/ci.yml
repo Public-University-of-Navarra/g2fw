@@ -1,0 +1,106 @@
+# CI of g2fw: runs on every PR and on every push to main.
+# The three job names (lint, build (esp32), wokwi) are the checks required by the
+# protection of main, so do not rename them.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format and cppcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang-format cppcheck
+
+      - name: Formatting (clang-format, style in .clang-format)
+        run: |
+          files=$(find fw/src fw/lib \( -name '*.cpp' -o -name '*.h' \) -print)
+          echo "$files"
+          clang-format --dry-run --Werror $files
+
+      - name: Static analysis (cppcheck)
+        run: |
+          includes=$(find fw/lib -mindepth 1 -maxdepth 1 -type d -printf '-I %p ')
+          cppcheck --enable=warning,performance,portability --std=c++17 --error-exitcode=1 \
+            --inline-suppr --suppress=missingIncludeSystem -DIRAM_ATTR= $includes fw/src fw/lib
+
+      - name: No delay() in fw/lib unless marked // setup-only
+        run: |
+          if grep -rn 'delay(' fw/lib | grep -v 'setup-only'; then
+            echo "::error::delay( found in fw/lib without '// setup-only' (contract, Rules)"
+            exit 1
+          fi
+
+  build:
+    name: build (${{ matrix.env }})
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        env: [esp32]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('fw/platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build
+        working-directory: fw
+        run: pio run -e ${{ matrix.env }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.env }}
+          path: |
+            fw/.pio/build/${{ matrix.env }}/firmware.bin
+            fw/.pio/build/${{ matrix.env }}/firmware.elf
+
+  wokwi:
+    needs: build
+    runs-on: ubuntu-24.04
+    env:
+      # Secrets cannot be used in `if:`, so the token is copied here and tested in a step.
+      WOKWI_CLI_TOKEN: ${{ secrets.WOKWI_CLI_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Is the simulation ready?
+        id: ready
+        run: |
+          if [ -f fw/wokwi.toml ] && [ -f fw/diagram.json ] && [ -n "$WOKWI_CLI_TOKEN" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Wokwi skipped: fw/wokwi.toml, fw/diagram.json or WOKWI_CLI_TOKEN missing"
+          fi
+
+      - uses: actions/download-artifact@v4
+        if: steps.ready.outputs.run == 'true'
+        with:
+          name: firmware-esp32
+          path: fw/.pio/build/esp32
+
+      - name: Run in Wokwi until the banner appears
+        if: steps.ready.outputs.run == 'true'
+        uses: wokwi/wokwi-ci-action@v1
+        with:
+          token: ${{ env.WOKWI_CLI_TOKEN }}
+          path: fw
+          expect_text: 'FPF-LAB READY'
