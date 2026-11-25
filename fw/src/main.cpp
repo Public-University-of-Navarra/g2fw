@@ -23,8 +23,37 @@ static void setupTofInf() {}
 static void loopTofInf() {}
 
 // ---- tof_front ----
-static void setupTofFront() {}
-static void loopTofFront() {}
+#include <tof_front.h>
+
+static uint32_t g_tof_front_last_print_ms = 0;
+static int g_tof_front_pending_err = FW_OK;
+
+static void setupTofFront() {
+  int err = tof_front_begin();  // may take ~2 s with the real driver (contract, Rules)
+  if (err != FW_OK) {
+    Serial.printf("[tof_front] ERR code=%d\n", err);
+  }
+}
+
+static void loopTofFront() {
+  int err = tof_front_update();
+  if (err != FW_OK) {
+    g_tof_front_pending_err = err;  // remember it, print at most once per second
+  }
+
+  uint32_t now = millis();
+  if (now - g_tof_front_last_print_ms < 1000) return;
+  g_tof_front_last_print_ms = now;
+
+  if (g_tof_front_pending_err != FW_OK) {
+    Serial.printf("[tof_front] ERR code=%d\n", g_tof_front_pending_err);
+    g_tof_front_pending_err = FW_OK;
+  }
+  tof_front_data_t data;
+  if (tof_front_get(&data) == FW_OK) {
+    Serial.printf("[tof_front] mm=%u\n", data.min_mm);
+  }
+}
 
 // ---- temp ----
 #include <temp.h>
