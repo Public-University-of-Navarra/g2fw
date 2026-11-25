@@ -5,6 +5,9 @@ disagree, the code is wrong, or this README is changed first in its own PR.
 
 - **Board:** ESP32-DevKitC-32E, the module on our drone PCB (`board = esp32dev`). The DOIT ESP32
   DEVKIT V1 used on the breadboard has the same chip and GPIO numbers.
+- **Module:** ESP32-WROOM-32E, without PSRAM. IO16 and IO17 (INT_TOF_INF, INT_ALT) are free only
+  on WROOM modules: a WROVER module uses them for its PSRAM. Do not swap the module without
+  moving those two signals.
 - **PlatformIO env:** `esp32` (`pio run -e esp32`). CI builds it in the job `build (esp32)`.
 - **Serial port (UART0, USB of the DevKit):** 115200 baud. This is the output the tests read.
 - **Firmware version:** `1.0.0`.
@@ -16,14 +19,19 @@ Every component lives in `fw/lib/<name>/` (`<name>.h` + `<name>.cpp`) and follow
 ```cpp
 #include <fw_errors.h>
 
-int <name>_begin();   // call once in setup(). Returns FW_OK or an error code.
-int <name>_update();  // call on every loop(). Never waits. Returns FW_OK if there was nothing
-                      // to do or the read worked, or an error code if a read failed.
-// getters: return the LAST VALID value. They never touch the hardware.
+int <name>_begin();            // call once in setup(). Returns FW_OK or an error code.
+int <name>_update();           // call on every loop(). Never waits. Returns FW_OK if there was
+                               // nothing to do or the read worked, or an error code if it failed.
+int <name>_get(<type> *out);   // copies the LAST VALID sample into *out and returns FW_OK.
+                               // Before the first valid sample it returns FW_ERR_NOT_READY and
+                               // leaves *out untouched. It never touches the hardware.
 ```
 
-Before the first valid sample the getters return `0`. The I2C buses are started once in
-`main.cpp` (see *Pin mapping*); a library never calls `Wire.begin()` or `Wire1.begin()`.
+**One rule for every component:** data is read only through `<name>_get()`, and "no data yet"
+is always `FW_ERR_NOT_READY`, never a special value (0 mm and 0 m are real readings).
+
+The I2C buses are started once in `main.cpp` (see *Pin mapping*); a library never calls
+`Wire.begin()` or `Wire1.begin()`.
 
 | Component   | Device                | Bus            | Real sample rate    | Printed on serial |
 |-------------|-----------------------|----------------|---------------------|-------------------|
@@ -50,35 +58,43 @@ int imu_get(imu_data_t *out);  // copies the last valid sample; FW_ERR_NOT_READY
 ### bar: barometer (LPS28DFW)
 
 ```cpp
-int   bar_begin();
-int   bar_update();
-float bar_get_hpa();         // air pressure, hPa
-float bar_get_altitude_m();  // altitude relative to the pressure read in bar_begin(), m
+struct bar_data_t {
+  float hpa;         // air pressure, hPa
+  float altitude_m;  // altitude relative to the pressure read in bar_begin(), m
+};
+
+int bar_begin();
+int bar_update();
+int bar_get(bar_data_t *out);
 ```
 
 ### tof_inf: bottom distance sensor, distance to the ground (VL53L1X)
 
 ```cpp
-int      tof_inf_begin();
-int      tof_inf_update();
-uint16_t tof_inf_get_mm();  // distance to the ground, mm (0 to 4000)
+int tof_inf_begin();
+int tof_inf_update();
+int tof_inf_get(uint16_t *mm);  // distance to the ground, mm (0 to 4000)
 ```
 
 ### tof_front: front distance sensor, obstacles ahead (VL53L8CX, 4x4 zones)
 
 ```cpp
-int      tof_front_begin();
-int      tof_front_update();
-uint16_t tof_front_get_mm();                   // closest obstacle over the 16 zones, mm (0 to 4000)
-uint16_t tof_front_get_zone_mm(uint8_t zone);  // one zone, 0 to 15; returns 0 if zone > 15
+struct tof_front_data_t {
+  uint16_t min_mm;       // closest obstacle over the 16 zones, mm (0 to 4000)
+  uint16_t zone_mm[16];  // distance of each zone, mm, in the order given by the ST driver
+};
+
+int tof_front_begin();   // the only function allowed to block, once (see Rules)
+int tof_front_update();
+int tof_front_get(tof_front_data_t *out);
 ```
 
 ### temp: temperature sensor (MCP9808)
 
 ```cpp
-int   temp_begin();
-int   temp_update();
-float temp_get_celsius();  // temperature, degC
+int temp_begin();
+int temp_update();
+int temp_get(float *celsius);  // temperature, degC
 ```
 
 ### camera: images of the camera, seen through the DSP
@@ -88,10 +104,14 @@ The camera is wired to the DSP (TI LCDK C6748), **not** to the ESP32. The DSP se
 number (`n_img`) that will tag every measurement sent to the DSP.
 
 ```cpp
-int      camera_begin();
-int      camera_update();            // FW_ERR_TIMEOUT if no pulse arrived in the last 1 s
-uint32_t camera_get_frames();        // DSP_SYNC pulses (images) since boot
-uint32_t camera_get_last_sync_us();  // micros() of the last pulse
+struct camera_data_t {
+  uint32_t frames;        // DSP_SYNC pulses (images) since boot
+  uint32_t last_sync_us;  // micros() of the last pulse
+};
+
+int camera_begin();
+int camera_update();  // FW_ERR_TIMEOUT if no pulse arrived in the last 1 s
+int camera_get(camera_data_t *out);
 ```
 
 ## Error codes
@@ -163,8 +183,14 @@ UART0 at 115200 baud, one line per message, fields separated by one space, float
 |---------|---------------------------------|--------------------------------------------|
 | Version | `[fw] name=g2fw version=1.0.0`  | once, in `setup()`, just before the banner |
 | Banner  | `FPF-LAB READY`                 | once, the **last** line of `setup()`       |
-| Update  | `[<name>] key=value key=value`  | once per second per component (`millis()`) |
-| Error   | `[<name>] ERR code=<n>`         | when `begin()` or `update()` returns != 0  |
+| Update  | `[<name>] key=value key=value`  | once per second per component (`millis()`), only when `<name>_get()` returns `FW_OK` |
+| Error   | `[<name>] ERR code=<n>`         | when `begin()` or `update()` returns != 0, at most once per second per component |
+
+While `<name>_get()` returns `FW_ERR_NOT_READY`, nothing is printed for that component.
+
+**Camera without the DSP.** With no DSP connected (in class and in Wokwi) no `DSP_SYNC` pulse
+arrives, so `camera_update()` returns `FW_ERR_TIMEOUT` and `[camera] ERR code=2` is printed once
+per second. This is the **expected** output, not a bug, and the VnV scenarios must accept it.
 
 One example line per component:
 
@@ -178,13 +204,21 @@ FPF-LAB READY
 [temp] c=21.50
 [camera] frames=25
 [temp] ERR code=2
+[camera] ERR code=2
 ```
 
 ## Rules
 
 - **Non-blocking**: no `delay()` anywhere in `fw/lib` (CI fails if it finds one). Use `millis()`.
-- **Interrupts**: an interrupt routine only saves `micros()` and sets a flag. The I2C read
-  happens later, in `<name>_update()`. Never use `Wire` inside an interrupt.
+- **The only exception**: `tof_front_begin()` may block **once, in `setup()`**, while the ST
+  driver uploads its ~84 KB firmware to the VL53L8CX over I2C and waits for it (`WaitMs()`).
+  The ST driver comes in as an external library, not inside `fw/lib`. `tof_front_update()`
+  never blocks.
+- **Interrupts**: an interrupt routine is marked `IRAM_ATTR` and only saves `micros()` and sets
+  a flag. Every variable it writes is `volatile`. The main code copies them with interrupts
+  disabled (`portENTER_CRITICAL()` / `portEXIT_CRITICAL()`) when they are wider than 32 bits or
+  when several of them must be read together. The I2C read happens later, in `<name>_update()`.
+  Never use `Wire` inside an interrupt.
 - **Bounded buffers**: fixed-size arrays only, always check the index. No `String` in `fw/lib`.
 - **Validate input**: check length and range of every value read from a sensor before using it.
 - **Own folder only**: each pair changes only `fw/lib/<name>/` and its own `setupX()`/`loopX()`
