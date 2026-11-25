@@ -3,6 +3,8 @@
 // Source: the board sent to fabrication (rev B, 19/11/2026). Schematic and PCB give the same
 // pins. The rev A pins (first routing) are no longer valid.
 // This is the ONLY place where pin numbers are written. Numbers are GPIO, not header pins.
+// Module: ESP32-WROOM-32E without PSRAM. IO16/IO17 are free only on WROOM modules (a WROVER
+// uses them for its PSRAM): do not swap the module without moving INT_TOF_INF and INT_ALT.
 #pragma once
 
 #include <stdint.h>
