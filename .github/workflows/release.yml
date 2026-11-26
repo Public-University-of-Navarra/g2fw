@@ -1,0 +1,58 @@
+# Release of g2fw: every push to main (every merged PR) publishes a new version (#72).
+# The version is the last tag vX.Y.Z with the patch +1 (v1.0.0 if there is none yet). The firmware
+# is built on that tag, so it prints exactly that version, and the .bin/.elf are attached.
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write  # create the tag and the release
+
+concurrency:
+  group: release
+  cancel-in-progress: false  # one release at a time, in merge order
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history and tags, to compute the next version
+
+      - name: Next version
+        id: version
+        run: |
+          last=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)
+          if [ -z "$last" ]; then
+            next=v1.0.0
+          else
+            IFS=. read -r major minor patch <<< "${last#v}"
+            next="v${major}.${minor}.$((patch + 1))"
+          fi
+          echo "Last: ${last:-none} -> next: $next"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+          git tag "$next"  # local only, so fw/scripts/version.py builds exactly this version
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build
+        working-directory: fw
+        run: pio run -e esp32
+
+      - name: Publish the release with the firmware
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          cp fw/.pio/build/esp32/firmware.bin "g2fw-$TAG.bin"
+          cp fw/.pio/build/esp32/firmware.elf "g2fw-$TAG.elf"
+          gh release create "$TAG" "g2fw-$TAG.bin" "g2fw-$TAG.elf" \
+            --target "$GITHUB_SHA" --title "g2fw $TAG" --generate-notes

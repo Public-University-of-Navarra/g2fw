@@ -5,7 +5,7 @@ version: 1
 author: g2fw
 
 steps:
-  - name: Version line
-    wait-serial: '[fw] name=g2fw version=1.0.0'
+  - name: Version line (the number comes from git, so only the prefix is checked)
+    wait-serial: '[fw] name=g2fw version='
   - name: Banner
     wait-serial: 'FPF-LAB READY'
